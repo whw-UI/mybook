@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>墨韵读书会 | 沉浸式图书管理系统</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- 引入 Animate.css 增强动画 -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Nunito:wght@400;600;700&display=swap');
+        
+        :root { --primary: #3b82f6; --secondary: #64748b; }
+        body { font-family: 'Nunito', sans-serif; background-color: #f8fafc; }
+        .serif { font-family: 'Noto Serif SC', serif; }
+        
+        /* 滚动条美化 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* 卡片悬浮特效 */
+        .book-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .book-card:hover { transform: translateY(-4px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); }
+        
+        /* 骨架屏动画 */
+        .skeleton { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    </style>
+</head>
+<body>
+
+<div id="app" class="flex h-screen overflow-hidden text-slate-800">
+    
+    <!-- 1. 侧边栏 (Sidebar) -->
+    <aside class="w-72 bg-white border-r border-slate-200 flex flex-col z-20 shadow-lg relative">
+        <div class="h-20 flex items-center px-8 border-b border-slate-100">
+            <i class="fas fa-book-open text-blue-600 text-2xl mr-3"></i>
+            <h1 class="text-xl font-bold serif tracking-wide text-slate-800">墨韵读书会</h1>
+        </div>
+
+        <!-- 用户切换区 -->
+        <div class="p-6 bg-slate-50 border-b border-slate-100">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="w-12 h-12 rounded-full flex items-center justify-center text-white text-lg shadow-md transition-transform hover:scale-105 cursor-pointer"
+                     :class="currentUser.role === 'student' ? 'bg-gradient-to-br from-blue-500 to-indigo-600' : 'bg-gradient-to-br from-emerald-500 to-teal-600'"
+                     @click="toggleRole">
+                    <i :class="currentUser.role === 'student' ? 'fas fa-user-graduate' : 'fas fa-id-card'"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-slate-700">{{ currentUser.name }}</h3>
+                    <p class="text-xs text-slate-500 flex items-center">
+                        <span class="w-2 h-2 rounded-full bg-green-500 mr-1.5 animate-pulse"></span>
+                        {{ currentUser.role === 'student' ? '在线 | 学生' : '在线 | 管理员' }}
+                    </p>
+                </div>
+            </div>
+            <button @click="toggleRole" class="w-full py-2 text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-lg hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition flex items-center justify-center gap-2">
+                <i class="fas fa-exchange-alt"></i> 切换角色 (模拟演示)
+            </button>
+        </div>
+
+        <!-- 导航菜单 -->
+        <nav class="flex-1 overflow-y-auto py-6 px-4 space-y-1">
+            <template v-for="item in currentMenu" :key="item.id">
+                <a href="#" @click.prevent="switchTab(item.id)" 
+                   class="flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group"
+                   :class="currentView === item.id ? 'bg-blue-50 text-blue-700 font-semibold shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'">
+                    <div class="flex items-center">
+                        <i :class="[item.icon, currentView === item.id ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600', 'w-6 text-center mr-3 transition-colors']"></i>
+                        <span>{{ item.text }}</span>
+                    </div>
+                    <!-- 动态徽标 (Badge) -->
+                    <span v-if="item.badge && item.badge > 0" 
+                          class="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm animate-bounce">
+                        {{ item.badge }}
+                    </span>
+                </a>
+            </template>
+        </nav>
+        
+        <div class="p-4 text-center text-xs text-slate-300">
+            v3.0.0 Pro | 数据已本地存储
+        </div>
+    </aside>
+
+    <!-- 2. 主内容区 (Main) -->
+    <main class="flex-1 flex flex-col bg-[#f8fafc] relative overflow-hidden">
+        <!-- 顶部通栏 -->
+        <header class="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-10">
+            <div>
+                <h2 class="text-xl font-bold text-slate-800">{{ getPageTitle }}</h2>
+                <p class="text-xs text-slate-400 mt-0.5">墨韵书香，润泽心灵</p>
+            </div>
+            <div class="flex items-center gap-6">
+                <!-- 学生视角的借阅额度展示 -->
+                <div v-if="currentUser.role === 'student'" class="hidden md:flex flex-col items-end">
+                    <span class="text-xs text-slate-500 mb-1">借阅额度</span>
+                    <div class="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div class="h-full bg-blue-500 transition-all duration-500" :style="{ width: (borrowedCount / currentUser.limit * 100) + '%' }"></div>
+                    </div>
+                    <span class="text-[10px] text-slate-400 mt-1">{{ borrowedCount }} / {{ currentUser.limit }}</span>
+                </div>
+                <button class="relative p-2 text-slate-400 hover:text-slate-600 transition">
+                    <i class="far fa-bell text-xl"></i>
+                    <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                </button>
+            </div>
+        </header>
+
+        <!-- 内容容器 -->
+        <div class="flex-1 overflow-y-auto p-8 scroll-smooth">
+            
+            <!-- 骨架屏加载状态 -->
+            <div v-if="isLoading" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div v-for="i in 6" class="h-64 bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                    <div class="w-full h-32 skeleton rounded-xl mb-4"></div>
+                    <div class="w-3/4 h-6 skeleton rounded mb-2"></div>
+                    <div class="w-1/2 h-4 skeleton rounded"></div>
+                </div>
+            </div>
+
+            <!-- 真实内容 -->
+            <div v-else class="animate__animated animate__fadeIn">
+                
+                <!-- 0. 仪表盘 (Dashboard) -->
+                <div v-if="currentView === 'dashboard'">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <!-- 统计卡片 -->
+                        <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-lg shadow-blue-200">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-blue-100 text-sm font-medium mb-1">{{ currentUser.role === 'student' ? '当前借阅' : '总藏书量' }}</p>
+                                    <h3 class="text-3xl font-bold">{{ currentUser.role === 'student' ? borrowedCount : totalBooks }}</h3>
+                                </div>
+                                <div class="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                                    <i :class="currentUser.role === 'student' ? 'fas fa-book-reader' : 'fas fa-university'" class="text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-slate-400 text-sm font-medium mb-1">{{ currentUser.role === 'student' ? '我的笔记' : '待审核笔记' }}</p>
+                                    <h3 class="text-3xl font-bold text-slate-700">{{ currentUser.role === 'student' ? myNotesCount : pendingReviewCount }}</h3>
+                                </div>
+                                <div class="p-3 bg-purple-50 text-purple-600 rounded-xl">
+                                    <i class="fas fa-pen-nib text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-slate-400 text-sm font-medium mb-1">系统消息</p>
+                                    <h3 class="text-3xl font-bold text-slate-700">0</h3>
+                                </div>
+                                <div class="p-3 bg-orange-50 text-orange-500 rounded-xl">
+                                    <i class="fas fa-envelope text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 欢迎插画区域 -->
+                    <div class="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm flex items-center justify-between">
+                        <div>
+                            <h3 class="text-2xl font-bold text-slate-800 mb-2">欢迎回来，{{ currentUser.name }}！</h3>
+                            <p class="text-slate-500 mb-6 max-w-lg">
+                                “读书之法，在循序而渐进，熟读而精思。” —— 朱熹<br>
+                                您现在处于 {{ currentUser.role === 'student' ? '学生端' : '管理端' }}，
+                                {{ currentUser.role === 'student' ? '快去书库挑选一本好书吧。' : '请检查是否有新的图书入库或笔记审核。' }}
+                            </p>
+                            <button @click="switchTab(currentUser.role === 'student' ? 'borrow' : 'review')" 
+                                    class="px-6 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition shadow-lg shadow-slate-200">
+                                {{ currentUser.role === 'student' ? '前往书库' : '开始工作' }} <i class="fas fa-arrow-right ml-2"></i>
+                            </button>
+                        </div>
+                        <div class="hidden md:block text-9xl text-slate-100 opacity-50">
+                            <i class="fas fa-book-open"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 1. 图书借阅 (Borrow) -->
+                <div v-if="currentView === 'borrow'">
+                    <div class="flex gap-4 mb-8">
+                        <div class="relative flex-1">
+                            <i class="fas fa-search absolute left-4 top-3.5 text-slate-400"></i>
+                            <input v-model="searchQuery" type="text" placeholder="搜索书名、作者、ISBN..." 
+                                   class="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm">
+                        </div>
+                        <select v-model="filterStock" class="px-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none">
+                            <option value="all">全部状态</option>
+                            <option value="inStock">仅看有货</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        <div v-for="book in filteredBooks" :key="book.id" class="book-card bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm flex flex-col relative">
+                            <!-- 热门标签 -->
+                            <span v-if="book.stock <= 2 && book.stock > 0" class="absolute top-3 left-3 bg-orange-500 text-white text-[10px] px-2 py-1 rounded-md font-bold z-10 shadow-md">仅剩 {{book.stock}} 本</span>
+                            
+                            <!-- 封面 (使用动态颜色生成器模拟) -->
+                            <div class="h-48 bg-slate-200 relative group overflow-hidden">
+                                <img :src="book.cover" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                                <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
+                            </div>
+                            
+                            <div class="p-5 flex-1 flex flex-col">
+                                <div class="mb-4">
+                                    <h3 class="font-bold text-lg text-slate-800 line-clamp-1 mb-1" :title="book.title">{{ book.title }}</h3>
+                                    <p class="text-sm text-slate-500">{{ book.author }}</p>
+                                </div>
+                                <div class="mt-auto flex items-center justify-between">
+                                    <div class="text-xs font-mono text-slate-400 bg-slate-50 px-2 py-1 rounded">{{ book.id }}</div>
+                                    <button @click="handleBorrow(book)" 
+                                            :disabled="book.stock <= 0"
+                                            class="px-4 py-2 rounded-lg text-sm font-bold transition-all active:scale-95"
+                                            :class="book.stock > 0 ? 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'">
+                                        {{ book.stock > 0 ? '借阅' : '缺货' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 图书归还 (Return) -->
+                <div v-if="currentView === 'return'">
+                    <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm uppercase tracking-wider">
+                                    <th class="p-5 font-semibold">图书信息</th>
+                                    <th class="p-5 font-semibold">借阅日期</th>
+                                    <th class="p-5 font-semibold">到期时间</th>
+                                    <th class="p-5 font-semibold">状态</th>
+                                    <th class="p-5 font-semibold text-right">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                <tr v-for="record in myActiveRecords" :key="record.id" class="hover:bg-slate-50 transition-colors group">
+                                    <td class="p-5">
+                                        <div class="font-bold text-slate-700">{{ record.bookTitle }}</div>
+                                        <div class="text-xs text-slate-400 font-mono">{{ record.id }}</div>
+                                    </td>
+                                    <td class="p-5 text-slate-600">{{ record.borrowDate }}</td>
+                                    <td class="p-5">
+                                        <span class="text-orange-600 font-medium bg-orange-50 px-2 py-1 rounded text-xs">
+                                            <i class="far fa-clock mr-1"></i>{{ record.dueDate }}
+                                        </span>
+                                    </td>
+                                    <td class="p-5"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">借阅中</span></td>
+                                    <td class="p-5 text-right">
+                                        <button @click="handleReturn(record)" class="text-sm text-blue-600 hover:text-blue-800 font-semibold border border-blue-200 hover:bg-blue-50 px-4 py-1.5 rounded-lg transition">归还图书</button>
+                                    </td>
+                                </tr>
+                                <tr v-if="myActiveRecords.length === 0">
+                                    <td colspan="5" class="p-12 text-center">
+                                        <div class="inline-block p-4 rounded-full bg-slate-50 text-slate-300 mb-3">
+                                            <i class="fas fa-check text-2xl"></i>
+                                        </div>
+                                        <p class="text-slate-500">真棒！您没有未归还的图书。</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 3. 笔记发布 (Publish) -->
+                <div v-if="currentView === 'publish'" class="flex flex-col lg:flex-row gap-8">
+                    <!-- 左侧表单 -->
+                    <div class="flex-1">
+                        <div class="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 mb-8">
+                            <h3 class="text-lg font-bold text-slate-800 mb-6 border-l-4 border-blue-500 pl-3">发布新笔记</h3>
+                            <div class="space-y-5">
+                                <div>
+                                    <label class="block text-sm font-bold text-slate-700 mb-2">笔记标题</label>
+                                    <input v-model="newNote.title" type="text" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="《书籍名》读后感">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-slate-700 mb-2">心得内容</label>
+                                    <textarea v-model="newNote.content" rows="8" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition resize-none" placeholder="写下你最深刻的感悟..."></textarea>
+                                </div>
+                                <div class="flex justify-end">
+                                    <button @click="submitNote" class="bg-slate-800 hover:bg-black text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all transform active:scale-95">
+                                        <i class="fas fa-paper-plane mr-2"></i> 提交审核
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧历史记录 -->
+                    <div class="w-full lg:w-96">
+                        <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">我的笔记记录</h3>
+                        <div class="space-y-4">
+                            <div v-for="note in myNotes" :key="note.id" class="bg-white p-5 rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition">
+                                <div class="flex justify-between items-start mb-2">
+                                    <span class="text-xs text-slate-400">{{ note.time }}</span>
+                                    <span :class="statusBadge(note.status)" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase">
+                                        {{ statusText(note.status) }}
+                                    </span>
+                                </div>
+                                <h4 class="font-bold text-slate-800 mb-1">{{ note.title }}</h4>
+                                <p class="text-sm text-slate-500 line-clamp-2">{{ note.content }}</p>
+                                <!-- 如果被驳回，显示理由 -->
+                                <div v-if="note.status === 'rejected' && note.rejectReason" class="mt-3 p-2 bg-red-50 rounded-lg text-xs text-red-600">
+                                    <i class="fas fa-exclamation-circle mr-1"></i> 驳回理由: {{ note.rejectReason }}
+                                </div>
+                            </div>
+                            <div v-if="myNotes.length === 0" class="text-center py-10 text-slate-400 text-sm">
+                                暂无发布记录
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. 图书管理 (Admin - Manage) -->
+                <div v-if="currentView === 'manage'">
+                    <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 mb-8">
+                        <h3 class="font-bold text-slate-700 mb-4">快速入库</h3>
+                        <div class="flex flex-wrap gap-3 items-end">
+                            <div class="flex-1 min-w-[120px]"><input v-model="newBook.id" placeholder="ID (如 B005)" class="w-full p-2.5 bg-slate-50 border rounded-lg text-sm"></div>
+                            <div class="flex-[2] min-w-[200px]"><input v-model="newBook.title" placeholder="书名" class="w-full p-2.5 bg-slate-50 border rounded-lg text-sm"></div>
+                            <div class="flex-1 min-w-[120px]"><input v-model="newBook.author" placeholder="作者" class="w-full p-2.5 bg-slate-50 border rounded-lg text-sm"></div>
+                            <div class="w-24"><input v-model="newBook.stock" type="number" min="1" placeholder="数量" class="w-full p-2.5 bg-slate-50 border rounded-lg text-sm"></div>
+                            <button @click="addBook" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg font-bold text-sm shadow-md transition">
+                                <i class="fas fa-plus mr-1"></i> 入库
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl shadow-sm overflow-hidden border border-slate-100">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 border-b">
+                                <tr class="text-xs text-slate-500 font-bold uppercase">
+                                    <th class="p-4">封面</th>
+                                    <th class="p-4">基本信息</th>
+                                    <th class="p-4">库存监控</th>
+                                    <th class="p-4 text-right">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                <tr v-for="book in books" :key="book.id" class="hover:bg-slate-50">
+                                    <td class="p-4 w-16">
+                                        <img :src="book.cover" class="w-10 h-14 object-cover rounded shadow-sm">
+                                    </td>
+                                    <td class="p-4">
+                                        <div class="font-bold text-slate-800">{{ book.title }}</div>
+                                        <div class="text-xs text-slate-400">{{ book.id }} | {{ book.author }}</div>
+                                    </td>
+                                    <td class="p-4">
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                <div class="h-full bg-green-500" :style="{width: Math.min(book.stock*10, 100) + '%'}"></div>
+                                            </div>
+                                            <span class="text-sm font-mono">{{ book.stock }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="p-4 text-right">
+                                        <button @click="deleteBook(book.id)" class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 5. 笔记审核 (Admin - Review) -->
+                <div v-if="currentView === 'review'">
+                    <div class="grid gap-6">
+                        <div v-for="note in pendingNotes" :key="note.id" class="bg-white rounded-2xl p-6 shadow-sm border-l-4 border-yellow-400">
+                            <div class="flex justify-between items-start mb-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 text-white flex items-center justify-center font-bold shadow-md">
+                                        {{ note.studentName[0] }}
+                                    </div>
+                                    <div>
+                                        <div class="font-bold text-slate-800">{{ note.studentName }}</div>
+                                        <div class="text-xs text-slate-400">提交于 {{ note.time }}</div>
+                                    </div>
+                                </div>
+                                <div class="text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded font-bold">等待审核</div>
+                            </div>
+                            
+                            <h3 class="text-lg font-bold mb-2">{{ note.title }}</h3>
+                            <p class="text-slate-600 text-sm leading-relaxed bg-slate-50 p-4 rounded-xl mb-4">
+                                {{ note.content }}
+                            </p>
+
+                            <!-- 审核操作区 -->
+                            <div class="flex flex-col sm:flex-row gap-3 pt-2 border-t border-slate-100">
+                                <button @click="processReview(note, 'approved')" class="flex-1 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 font-bold transition flex items-center justify-center">
+                                    <i class="fas fa-check-circle mr-2"></i> 通过发布
+                                </button>
+                                
+                                <!-- 驳回逻辑增强：点击显示输入框 -->
+                                <div class="flex-1 flex gap-2" v-if="rejectTarget === note.id">
+                                    <input v-model="rejectReasonInput" placeholder="请输入驳回理由..." class="flex-1 text-sm border rounded px-2 focus:outline-blue-500">
+                                    <button @click="confirmReject(note)" class="px-3 bg-red-500 text-white rounded hover:bg-red-600 text-xs">确定</button>
+                                    <button @click="rejectTarget = null" class="px-3 text-slate-400 hover:text-slate-600 text-xs">取消</button>
+                                </div>
+                                <button v-else @click="startReject(note.id)" class="flex-1 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 font-bold transition flex items-center justify-center">
+                                    <i class="fas fa-times-circle mr-2"></i> 驳回
+                                </button>
+                            </div>
+                        </div>
+
+                        <div v-if="pendingNotes.length === 0" class="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-dashed border-slate-200">
+                            <div class="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center text-green-500 text-2xl mb-4">
+                                <i class="fas fa-mug-hot"></i>
+                            </div>
+                            <h3 class="font-bold text-slate-700">工作已完成</h3>
+                            <p class="text-slate-400 text-sm">目前没有待审核的笔记</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast 通知 -->
+    <div class="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
+        <transition-group enter-active-class="animate__animated animate__slideInRight" leave-active-class="animate__animated animate__fadeOutRight">
+            <div v-for="t in toasts" :key="t.id" 
+                 class="pointer-events-auto flex items-center p-4 rounded-xl shadow-2xl min-w-[300px] text-white backdrop-blur-md"
+                 :class="t.type === 'success' ? 'bg-slate-800/90' : 'bg-red-500/90'">
+                <i :class="t.type === 'success' ? 'fas fa-check-circle' : 'fas fa-exclamation-triangle'" class="text-xl mr-3"></i>
+                <div>
+                    <h4 class="font-bold text-sm">{{ t.title }}</h4>
+                    <p class="text-xs opacity-80">{{ t.msg }}</p>
+                </div>
+            </div>
+        </transition-group>
+    </div>
+</div>
+
+<script>
+    const { createApp, reactive, computed, ref, onMounted, watch } = Vue;
+
+    createApp({
+        setup() {
+            // --- 1. 数据初始化与持久化 (Persistence) ---
+            const defaultData = {
+                books: [
+                    { id: 'B001', title: '红楼梦', author: '曹雪芹', stock: 3, cover: 'https://via.placeholder.com/300x400/818cf8/ffffff?text=Dream' },
+                    { id: 'B002', title: '三体全集', author: '刘慈欣', stock: 5, cover: 'https://via.placeholder.com/300x400/0f172a/ffffff?text=ThreeBody' },
+                    { id: 'B003', title: 'Vue.js设计与实现', author: '霍春阳', stock: 0, cover: 'https://via.placeholder.com/300x400/4ade80/ffffff?text=Vue.js' },
+                    { id: 'B004', title: '百年孤独', author: '马尔克斯', stock: 2, cover: 'https://via.placeholder.com/300x400/fbbf24/ffffff?text=Solitude' },
+                ],
+                records: [],
+                notes: []
+            };
+
+            // 尝试从 LocalStorage 读取
+            const savedData = JSON.parse(localStorage.getItem('moYunData')) || defaultData;
+
+            const state = reactive({
+                books: savedData.books,
+                borrowRecords: savedData.records,
+                notes: savedData.notes,
+                currentUser: { role: 'student', id: 'S001', name: '张三', limit: 5 }
+            });
+
+            // 监听数据变化自动保存
+            watch(() => [state.books, state.borrowRecords, state.notes], () => {
+                localStorage.setItem('moYunData', JSON.stringify({
+                    books: state.books,
+                    records: state.borrowRecords,
+                    notes: state.notes
+                }));
+            }, { deep: true });
+
+            // --- 2. 界面状态管理 (UI State) ---
+            const currentView = ref('dashboard');
+            const isLoading = ref(false);
+            const searchQuery = ref('');
+            const filterStock = ref('all');
+            const newNote = reactive({ title: '', content: '' });
+            const newBook = reactive({ id: '', title: '', author: '', stock: 1 });
+            const toasts = ref([]);
+            
+            // 驳回相关状态
+            const rejectTarget = ref(null);
+            const rejectReasonInput = ref('');
+
+            // --- 3. 计算属性 (Computed) ---
+            const menus = computed(() => ({
+                student: [
+                    { id: 'dashboard', text: '首页概览', icon: 'fas fa-home' },
+                    { id: 'borrow', text: '图书借阅', icon: 'fas fa-search' },
+                    { id: 'return', text: '图书归还', icon: 'fas fa-undo', badge: myActiveRecords.value.length }, // Badge!
+                    { id: 'publish', text: '读书笔记', icon: 'fas fa-feather-alt' }
+                ],
+                admin: [
+                    { id: 'dashboard', text: '工作台', icon: 'fas fa-tachometer-alt' },
+                    { id: 'manage', text: '图书管理', icon: 'fas fa-boxes' },
+                    { id: 'review', text: '笔记审核', icon: 'fas fa-gavel', badge: pendingNotes.value.length } // Badge!
+                ]
+            }));
+
+            const currentMenu = computed(() => menus.value[state.currentUser.role]);
+            const getPageTitle = computed(() => currentMenu.value.find(m => m.id === currentView.value)?.text || '墨韵平台');
+            
+            // 业务过滤逻辑
+            const filteredBooks = computed(() => {
+                let res = state.books.filter(b => 
+                    b.title.toLowerCase().includes(searchQuery.value.toLowerCase()) || 
+                    b.author.toLowerCase().includes(searchQuery.value.toLowerCase())
+                );
+                if (filterStock.value === 'inStock') {
+                    res = res.filter(b => b.stock > 0);
+                }
+                return res;
+            });
+
+            const myActiveRecords = computed(() => state.borrowRecords.filter(r => r.studentId === state.currentUser.id && r.status === 'borrowed'));
+            const myNotes = computed(() => state.notes.filter(n => n.studentId === state.currentUser.id).reverse());
+            const pendingNotes = computed(() => state.notes.filter(n => n.status === 'pending'));
+            
+            // 仪表盘统计
+            const borrowedCount = computed(() => myActiveRecords.value.length);
+            const totalBooks = computed(() => state.books.reduce((sum, b) => sum + b.stock, 0));
+            const myNotesCount = computed(() => myNotes.value.length);
+            const pendingReviewCount = computed(() => pendingNotes.value.length);
+
+            // --- 4. 方法 (Methods) ---
+            const switchTab = (tab) => {
+                isLoading.value = true;
+                currentView.value = tab;
+                setTimeout(() => isLoading.value = false, 400); // 模拟加载延迟，增加真实感
+            };
+
+            const showToast = (title, msg, type = 'success') => {
+                const id = Date.now();
+                toasts.value.push({ id, title, msg, type });
+                setTimeout(() => toasts.value = toasts.value.filter(t => t.id !== id), 3000);
+            };
+
+            const toggleRole = () => {
+                const isStudent = state.currentUser.role === 'student';
+                state.currentUser = isStudent 
+                    ? { role: 'admin', id: 'A001', name: '李老师' }
+                    : { role: 'student', id: 'S001', name: '张三', limit: 5 };
+                switchTab('dashboard');
+                showToast('身份已切换', `欢迎您, ${state.currentUser.name}`);
+            };
+
+            // 业务逻辑 - 借阅
+            const handleBorrow = (book) => {
+                if (borrowedCount.value >= state.currentUser.limit) return showToast('失败', '借阅额度已满', 'error');
+                if (myActiveRecords.value.some(r => r.bookId === book.id)) return showToast('失败', '请勿重复借阅同一本书', 'error');
+                
+                book.stock--;
+                const d = new Date();
+                d.setDate(d.getDate() + 30);
+                state.borrowRecords.push({
+                    id: 'R' + Date.now().toString().slice(-4),
+                    studentId: state.currentUser.id,
+                    bookId: book.id,
+                    bookTitle: book.title,
+                    borrowDate: new Date().toLocaleDateString(),
+                    dueDate: d.toLocaleDateString(),
+                    status: 'borrowed'
+                });
+                showToast('借阅成功', `《${book.title}》借阅期限30天`);
+            };
+
+            // 业务逻辑 - 归还
+            const handleReturn = (record) => {
+                record.status = 'returned';
+                const book = state.books.find(b => b.id === record.bookId);
+                if (book) book.stock++;
+                showToast('归还成功', '期待您的下次借阅');
+            };
+
+            // 业务逻辑 - 发布笔记
+            const submitNote = () => {
+                if (!newNote.title || !newNote.content) return showToast('错误', '请填写完整内容', 'error');
+                state.notes.push({
+                    id: 'N' + Date.now().toString().slice(-4),
+                    studentId: state.currentUser.id,
+                    studentName: state.currentUser.name,
+                    title: newNote.title,
+                    content: newNote.content,
+                    time: new Date().toLocaleString(),
+                    status: 'pending'
+                });
+                newNote.title = ''; newNote.content = '';
+                showToast('已提交', '请耐心等待管理员审核');
+            };
+
+            // 业务逻辑 - 图书管理
+            const addBook = () => {
+                if(!newBook.id || !newBook.title) return showToast('错误', '信息不完整', 'error');
+                state.books.push({ ...newBook, cover: `https://via.placeholder.com/300x400/334155/ffffff?text=${newBook.title.substring(0,4)}` });
+                newBook.title = ''; newBook.id = '';
+                showToast('入库成功', '新书已上架');
+            };
+            const deleteBook = (id) => {
+                if(confirm('确定下架该图书吗？')) {
+                    state.books = state.books.filter(b => b.id !== id);
+                }
+            };
+
+            // 业务逻辑 - 审核
+            const processReview = (note, result) => {
+                note.status = result;
+                showToast('审核完成', '操作已生效');
+            };
+            
+            // 驳回逻辑
+            const startReject = (id) => {
+                rejectTarget.value = id;
+                rejectReasonInput.value = '';
+            };
+            const confirmReject = (note) => {
+                if(!rejectReasonInput.value) return showToast('错误', '请填写驳回理由', 'error');
+                note.status = 'rejected';
+                note.rejectReason = rejectReasonInput.value; // 记录理由
+                rejectTarget.value = null;
+                showToast('已驳回', '学生将收到驳回通知');
+            };
+
+            // 辅助方法
+            const statusBadge = (s) => ({ pending: 'bg-yellow-100 text-yellow-700', approved: 'bg-green-100 text-green-700', rejected: 'bg-red-100 text-red-700' }[s]);
+            const statusText = (s) => ({ pending: '审核中', approved: '已发布', rejected: '未通过' }[s]);
+
+            return {
+                state, currentView, isLoading, searchQuery, filterStock, newNote, newBook, toasts,
+                currentUser: state.currentUser, books: state.books, 
+                menus, currentMenu, getPageTitle,
+                filteredBooks, myActiveRecords, myNotes, pendingNotes,
+                borrowedCount, totalBooks, myNotesCount, pendingReviewCount,
+                switchTab, toggleRole, handleBorrow, handleReturn, submitNote, addBook, deleteBook, processReview,
+                // Reject Logic
+                rejectTarget, rejectReasonInput, startReject, confirmReject,
+                statusBadge, statusText
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
